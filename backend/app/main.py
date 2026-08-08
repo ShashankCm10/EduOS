@@ -2,12 +2,15 @@ from fastapi import FastAPI
 
 from app.api.health import router as health_router
 from app.api.auth import router as auth_router
-
+from app.config.database import Base, engine
+from app.models.user import User
 app = FastAPI(
     title="EduOS API",
     description="Backend API for the EduOS platform.",
     version="1.0.0",
 )
+
+Base.metadata.create_all(bind=engine)
 
 app.include_router(health_router)
 app.include_router(auth_router)
