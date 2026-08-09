@@ -14,3 +14,9 @@ class Note(Base):
         ForeignKey("users.id"),
         nullable=False
     )
+
+    subject_id = Column(
+        Integer,
+        ForeignKey("subjects.id"),
+        nullable=False
+    )
