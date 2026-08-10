@@ -16,7 +16,7 @@ class Note(Base):
     )
 
     subject_id = Column(
-        Integer,
-        ForeignKey("subjects.id"),
-        nullable=False
-    )
+    Integer,
+    ForeignKey("subjects.id", ondelete="CASCADE"),
+    nullable=False
+)

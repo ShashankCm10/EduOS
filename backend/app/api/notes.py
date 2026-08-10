@@ -78,7 +78,18 @@ def get_note(
             detail="Note not found"
         )
 
-    return note
+    subject = db.query(Subject).filter(
+        Subject.id == note.subject_id
+    ).first()
+
+    return {
+        "id": note.id,
+        "title": note.title,
+        "content": note.content,
+        "user_id": note.user_id,
+        "subject_id": note.subject_id,
+        "subject_name": subject.name if subject else None
+    }
 
 
 @router.put("/{note_id}")
