@@ -7,6 +7,7 @@ from app.models.subject import Subject
 from app.models.user import User
 from app.models.note import Note
 from app.schemas.subject import SubjectCreate
+from app.models.study_material import StudyMaterial
 
 
 router = APIRouter(
@@ -151,3 +152,34 @@ def get_subject(
         )
 
     return subject
+
+@router.get("/{subject_id}/materials")
+def get_subject_materials(
+    subject_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    subject = db.query(Subject).filter(
+        Subject.id == subject_id,
+        Subject.user_id == current_user.id
+    ).first()
+
+    if not subject:
+        raise HTTPException(
+            status_code=404,
+            detail="Subject not found"
+        )
+
+    materials = db.query(StudyMaterial).filter(
+        StudyMaterial.subject_id == subject_id,
+        StudyMaterial.user_id == current_user.id
+    ).all()
+
+    return {
+        "subject": {
+            "id": subject.id,
+            "name": subject.name,
+            "description": subject.description
+        },
+        "materials": materials
+    }
