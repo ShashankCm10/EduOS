@@ -16,6 +16,10 @@ class StudyMaterial(Base):
     stored_filename = Column(String(255), nullable=True)
 
     file_path = Column(String(500), nullable=True)
+    
+    extracted_text = Column(Text, nullable=True)
+    
+    language = Column(String(10), nullable=True)
 
     user_id = Column(
         Integer,

@@ -7,6 +7,7 @@ from app.api.subjects import router as subjects_router
 from app.config.database import Base, engine
 from app.models.user import User
 from app.api.study_materials import router as study_materials_router
+from app.models.document_chunk import DocumentChunk
 app = FastAPI(
     title="EduOS API",
     description="Backend API for the EduOS platform.",
