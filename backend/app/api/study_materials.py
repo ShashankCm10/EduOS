@@ -21,6 +21,9 @@ from app.services.text_service import clean_text
 from app.services.chunk_service import split_pages_into_chunks
 from app.schemas.search import SearchRequest
 from app.services.embedding_service import generate_embedding
+from app.schemas.search import RAGRequest
+from app.services.rag_service import answer_question
+from app.schemas.rag import RAGResponse
 
 router = APIRouter(
     prefix="/study-materials",
@@ -417,3 +420,71 @@ def search_study_material(
         "question": search_data.question,
         "results": search_results
     }
+    
+@router.post("/{material_id}/ask")
+def ask_study_material(
+    material_id: int,
+    rag_data: RAGRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    material = db.query(StudyMaterial).filter(
+        StudyMaterial.id == material_id,
+        StudyMaterial.user_id == current_user.id
+    ).first()
+
+    if not material:
+        raise HTTPException(
+            status_code=404,
+            detail="Study material not found"
+        )
+
+    result = answer_question(
+        db=db,
+        material_id=material_id,
+        question=rag_data.question,
+        limit=rag_data.limit
+    )
+
+    return {
+        "material_id": material_id,
+        "question": rag_data.question,
+        "answer": result["answer"],
+        "sources": result["sources"]
+    }
+@router.post(
+    "/{material_id}/ask",
+    response_model=RAGResponse
+)
+def ask_study_material(
+    material_id: int,
+    rag_data: RAGRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    material = db.query(StudyMaterial).filter(
+        StudyMaterial.id == material_id,
+        StudyMaterial.user_id == current_user.id
+    ).first()
+
+    if not material:
+        raise HTTPException(
+            status_code=404,
+            detail="Study material not found"
+        )
+
+    result = answer_question(
+        db=db,
+        material_id=material_id,
+        question=rag_data.question,
+        limit=rag_data.limit
+    )
+
+    return {
+        "material_id": material_id,
+        "question": rag_data.question,
+        "answer": result["answer"],
+        "sources": result["sources"],
+        "metadata": result["metadata"]
+    }      
+    

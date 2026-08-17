@@ -8,6 +8,7 @@ from app.config.database import Base, engine
 from app.models.user import User
 from app.api.study_materials import router as study_materials_router
 from app.models.document_chunk import DocumentChunk
+from app.api.students import router as students_router
 app = FastAPI(
     title="EduOS API",
     description="Backend API for the EduOS platform.",
@@ -24,6 +25,7 @@ app.include_router(auth_router)
 app.include_router(notes_router)
 app.include_router(subjects_router)
 app.include_router(study_materials_router)
+app.include_router(students_router)
 
 
 @app.get("/")
