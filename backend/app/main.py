@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 
 from app.api.health import router as health_router
+from app.models.ai_conversation import AIConversation
+from app.models.ai_message import AIMessage
 from app.api.notes import router as notes_router
 from app.api.auth import router as auth_router
 from app.api.subjects import router as subjects_router
