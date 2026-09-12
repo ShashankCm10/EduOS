@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-
+from app.api.assignments import router as assignments_router
 from app.api.health import router as health_router
 from app.models.ai_conversation import AIConversation
 from app.models.ai_message import AIMessage
@@ -28,6 +28,7 @@ app.include_router(notes_router)
 app.include_router(subjects_router)
 app.include_router(study_materials_router)
 app.include_router(students_router)
+app.include_router(assignments_router)
 
 
 @app.get("/")
