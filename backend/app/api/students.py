@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from datetime import datetime, timezone 
 from sqlalchemy.orm import Session
 from typing import List
+from sqlalchemy.sql import func
 
 from app.config.database import get_db
 from app.models.user import User
@@ -285,11 +286,16 @@ def create_conversation(
             status_code=404,
             detail="Study material not found"
         )
+        
+    conversation_title = request.title
+
+    if not conversation_title:
+        conversation_title = "New Conversation"    
 
     conversation = AIConversation(
         user_id=current_user.id,
         study_material_id=request.study_material_id,
-        title=request.title
+        title=conversation_title
     )
 
     db.add(conversation)
@@ -316,7 +322,6 @@ def get_student_conversations(
     current_user: User = Depends(get_current_user)
 ):
 
-    # Keep pagination values safe
     if skip < 0:
         skip = 0
 
@@ -340,7 +345,6 @@ def get_student_conversations(
     )
 
     return conversations
-
 
 # ============================================================
 # GET SINGLE CONVERSATION
@@ -470,6 +474,8 @@ def ask_conversation(
     db.add(user_message)
     db.commit()
     db.refresh(user_message)
+    conversation.updated_at = func.now()
+    db.commit()
 
     previous_messages = (
         db.query(AIMessage)
@@ -478,18 +484,19 @@ def ask_conversation(
             AIMessage.id != user_message.id
         )
         .order_by(
-            AIMessage.created_at.asc()
-        )
-        .all()
+    AIMessage.created_at.desc()
+)
+.limit(20)
+.all()
     )
 
     conversation_history = [
-        {
-            "role": message.role,
-            "content": message.content
-        }
-        for message in previous_messages
-    ]
+    {
+        "role": message.role,
+        "content": message.content
+    }
+    for message in reversed(previous_messages)
+]
 
     try:
 
