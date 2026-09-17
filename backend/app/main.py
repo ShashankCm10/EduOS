@@ -11,6 +11,11 @@ from app.models.user import User
 from app.api.study_materials import router as study_materials_router
 from app.models.document_chunk import DocumentChunk
 from app.api.students import router as students_router
+from app.models.quiz import Quiz
+from app.models.quiz_question import QuizQuestion
+from app.api.quizzes import router as quizzes_router
+from app.models.quiz_attempt import QuizAttempt
+from app.api.quiz_attempts import router as quiz_attempts_router
 app = FastAPI(
     title="EduOS API",
     description="Backend API for the EduOS platform.",
@@ -29,6 +34,8 @@ app.include_router(subjects_router)
 app.include_router(study_materials_router)
 app.include_router(students_router)
 app.include_router(assignments_router)
+app.include_router(quizzes_router)
+app.include_router(quiz_attempts_router)
 
 
 @app.get("/")
