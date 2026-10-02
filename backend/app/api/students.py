@@ -1,27 +1,24 @@
+from urllib import request
+
 from fastapi import APIRouter, Depends, HTTPException
-from datetime import datetime, timezone 
 from sqlalchemy.orm import Session
 from typing import List
-from sqlalchemy.sql import func
 
 from app.config.database import get_db
 from app.models.user import User
 from app.models.subject import Subject
 from app.models.study_material import StudyMaterial
-
+from app.models.document_chunk import DocumentChunk
 from app.schemas.student import (
     StudentDashboardResponse,
     StudentSubjectResponse,
     StudentMaterialResponse,
     StudentMaterialDetailResponse
 )
-
 from app.api.auth import get_current_user
 from app.schemas.search import RAGRequest
 from app.schemas.rag import RAGResponse
-
 from app.services.rag_service import answer_question
-
 from app.models.ai_conversation import AIConversation
 from app.models.ai_message import AIMessage
 
@@ -33,19 +30,11 @@ from app.schemas.ai_conversation import (
 )
 
 
-# ============================================================
-# ROUTER
-# ============================================================
-
 router = APIRouter(
     prefix="/students",
     tags=["Students"]
 )
 
-
-# ============================================================
-# STUDENT DASHBOARD
-# ============================================================
 
 @router.get(
     "/me/dashboard",
@@ -55,7 +44,6 @@ def get_student_dashboard(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-
     total_subjects = (
         db.query(Subject)
         .filter(
@@ -83,10 +71,6 @@ def get_student_dashboard(
     }
 
 
-# ============================================================
-# STUDENT SUBJECTS
-# ============================================================
-
 @router.get(
     "/me/subjects",
     response_model=List[StudentSubjectResponse]
@@ -95,7 +79,6 @@ def get_student_subjects(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-
     subjects = (
         db.query(Subject)
         .filter(
@@ -108,10 +91,6 @@ def get_student_subjects(
     return subjects
 
 
-# ============================================================
-# STUDENT MATERIALS
-# ============================================================
-
 @router.get(
     "/me/materials",
     response_model=List[StudentMaterialResponse]
@@ -120,7 +99,6 @@ def get_student_materials(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-
     materials = (
         db.query(StudyMaterial, Subject)
         .join(
@@ -151,9 +129,51 @@ def get_student_materials(
     ]
 
 
-# ============================================================
-# STUDY MATERIAL DETAIL
-# ============================================================
+@router.get("/me/material-stats")
+def get_student_material_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    material_ids = [
+        row[0]
+        for row in db.query(StudyMaterial.id)
+        .filter(StudyMaterial.user_id == current_user.id)
+        .all()
+    ]
+
+    documents = len(material_ids)
+
+    if not material_ids:
+        return {
+            "documents": 0,
+            "pages_searchable": 0,
+            "chunks": 0,
+            "embedded_chunks": 0,
+        }
+
+    chunk_query = db.query(DocumentChunk).filter(
+        DocumentChunk.study_material_id.in_(material_ids)
+    )
+
+    chunks = chunk_query.count()
+    embedded_chunks = chunk_query.filter(
+        DocumentChunk.embedding.is_not(None)
+    ).count()
+
+    pages_searchable = db.query(
+        DocumentChunk.study_material_id,
+        DocumentChunk.page_number
+    ).filter(
+        DocumentChunk.study_material_id.in_(material_ids)
+    ).distinct().count()
+
+    return {
+        "documents": documents,
+        "pages_searchable": pages_searchable,
+        "chunks": chunks,
+        "embedded_chunks": embedded_chunks,
+    }
+
 
 @router.get(
     "/me/materials/{material_id}",
@@ -164,7 +184,6 @@ def get_student_material(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-
     result = (
         db.query(StudyMaterial, Subject)
         .join(
@@ -180,7 +199,6 @@ def get_student_material(
     )
 
     if not result:
-
         raise HTTPException(
             status_code=404,
             detail="Study material not found"
@@ -200,11 +218,6 @@ def get_student_material(
         }
     }
 
-
-# ============================================================
-# DIRECT MATERIAL ASK
-# ============================================================
-
 @router.post(
     "/me/materials/{material_id}/ask",
     response_model=RAGResponse
@@ -215,7 +228,6 @@ def ask_student_material(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-
     material = (
         db.query(StudyMaterial)
         .filter(
@@ -226,23 +238,19 @@ def ask_student_material(
     )
 
     if not material:
-
         raise HTTPException(
             status_code=404,
             detail="Study material not found"
         )
 
     try:
-
         result = answer_question(
             db=db,
             material_id=material_id,
             question=request.question,
             limit=request.limit
         )
-
     except RuntimeError as e:
-
         raise HTTPException(
             status_code=503,
             detail=str(e)
@@ -256,11 +264,6 @@ def ask_student_material(
         "metadata": result["metadata"]
     }
 
-
-# ============================================================
-# CREATE AI CONVERSATION
-# ============================================================
-
 @router.post(
     "/me/conversations",
     response_model=ConversationResponse
@@ -270,7 +273,6 @@ def create_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-
     material = (
         db.query(StudyMaterial)
         .filter(
@@ -281,74 +283,41 @@ def create_conversation(
     )
 
     if not material:
-
         raise HTTPException(
             status_code=404,
             detail="Study material not found"
         )
-        
-    conversation_title = request.title
-
-    if not conversation_title:
-        conversation_title = "New Conversation"    
 
     conversation = AIConversation(
         user_id=current_user.id,
         study_material_id=request.study_material_id,
-        title=conversation_title
+        title=request.title
     )
 
     db.add(conversation)
-
     db.commit()
-
     db.refresh(conversation)
 
     return conversation
-
-
-# ============================================================
-# GET ALL CONVERSATIONS
-# ============================================================
 
 @router.get(
     "/me/conversations",
     response_model=list[ConversationResponse]
 )
 def get_student_conversations(
-    skip: int = 0,
-    limit: int = 20,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-
-    if skip < 0:
-        skip = 0
-
-    if limit < 1:
-        limit = 20
-
-    if limit > 100:
-        limit = 100
-
     conversations = (
         db.query(AIConversation)
         .filter(
             AIConversation.user_id == current_user.id
         )
-        .order_by(
-            AIConversation.updated_at.desc()
-        )
-        .offset(skip)
-        .limit(limit)
+        .order_by(AIConversation.updated_at.desc())
         .all()
     )
 
-    return conversations
-
-# ============================================================
-# GET SINGLE CONVERSATION
-# ============================================================
+    return conversations    
 
 @router.get(
     "/me/conversations/{conversation_id}",
@@ -359,7 +328,6 @@ def get_student_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-
     conversation = (
         db.query(AIConversation)
         .filter(
@@ -370,7 +338,6 @@ def get_student_conversation(
     )
 
     if not conversation:
-
         raise HTTPException(
             status_code=404,
             detail="Conversation not found"
@@ -381,9 +348,7 @@ def get_student_conversation(
         .filter(
             AIMessage.conversation_id == conversation.id
         )
-        .order_by(
-            AIMessage.created_at.asc()
-        )
+        .order_by(AIMessage.created_at.asc())
         .all()
     )
 
@@ -395,21 +360,13 @@ def get_student_conversation(
         "updated_at": conversation.updated_at,
         "messages": messages
     }
-
-
-# ============================================================
-# DELETE CONVERSATION
-# ============================================================
-
-@router.delete(
-    "/me/conversations/{conversation_id}"
-)
+    
+@router.delete("/me/conversations/{conversation_id}")
 def delete_student_conversation(
     conversation_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-
     conversation = (
         db.query(AIConversation)
         .filter(
@@ -420,24 +377,17 @@ def delete_student_conversation(
     )
 
     if not conversation:
-
         raise HTTPException(
             status_code=404,
             detail="Conversation not found"
         )
 
     db.delete(conversation)
-
     db.commit()
 
     return {
         "message": "Conversation deleted successfully"
     }
-
-
-# ============================================================
-# ASK INSIDE CONVERSATION
-# ============================================================
 
 @router.post(
     "/me/conversations/{conversation_id}/ask",
@@ -449,7 +399,6 @@ def ask_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-
     conversation = (
         db.query(AIConversation)
         .filter(
@@ -474,31 +423,24 @@ def ask_conversation(
     db.add(user_message)
     db.commit()
     db.refresh(user_message)
-    conversation.updated_at = func.now()
-    db.commit()
-
-    previous_messages = (
-        db.query(AIMessage)
-        .filter(
-            AIMessage.conversation_id == conversation.id,
-            AIMessage.id != user_message.id
-        )
-        .order_by(
-    AIMessage.created_at.desc()
-)
-.limit(20)
-.all()
-    )
-
-    conversation_history = [
-    {
-        "role": message.role,
-        "content": message.content
-    }
-    for message in reversed(previous_messages)
-]
 
     try:
+        previous_messages = (
+            db.query(AIMessage)
+            .filter(
+                AIMessage.conversation_id == conversation.id
+            )
+            .order_by(AIMessage.created_at.asc())
+            .all()
+        )
+
+        conversation_history = [
+            {
+                "role": message.role,
+                "content": message.content
+            }
+            for message in previous_messages
+        ]
 
         result = answer_question(
             db=db,
@@ -509,7 +451,6 @@ def ask_conversation(
         )
 
     except RuntimeError as e:
-
         raise HTTPException(
             status_code=503,
             detail=str(e)

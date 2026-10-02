@@ -20,6 +20,16 @@ def register(
     user: UserRegister,
     db: Session = Depends(get_db)
 ):
+    existing_user = db.query(User).filter(
+        User.email == user.email
+    ).first()
+
+    if existing_user:
+        raise HTTPException(
+            status_code=409,
+            detail="An account with this email already exists"
+        )
+
     hashed_password = hash_password(user.password)
 
     new_user = User(

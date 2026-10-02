@@ -13,6 +13,8 @@ from app.schemas.quiz import (
     QuizQuestionResponse
 )
 from app.api.auth import get_current_user
+from app.schemas.ai_quiz import AIQuizGenerateRequest
+from app.services.ai_quiz_workflow import generate_and_save_quiz
 
 
 router = APIRouter(
@@ -118,6 +120,56 @@ def get_quizzes(
     )
 
     return quizzes
+
+@router.post(
+    "/ai-generate",
+    response_model=QuizDetailResponse
+)
+def generate_ai_quiz(
+    request: AIQuizGenerateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        quiz = generate_and_save_quiz(
+            db=db,
+            user_id=current_user.id,
+            study_material_id=request.study_material_id,
+            number_of_questions=request.number_of_questions,
+            difficulty=request.difficulty
+        )
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=str(e)
+        )
+
+    questions = (
+        db.query(QuizQuestion)
+        .filter(
+            QuizQuestion.quiz_id == quiz.id
+        )
+        .order_by(
+            QuizQuestion.question_order.asc()
+        )
+        .all()
+    )
+
+    return {
+        "id": quiz.id,
+        "title": quiz.title,
+        "description": quiz.description,
+        "subject_id": quiz.subject_id,
+        "created_at": quiz.created_at,
+        "updated_at": quiz.updated_at,
+        "questions": questions
+    }
 
 
 @router.get(

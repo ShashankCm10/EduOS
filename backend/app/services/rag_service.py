@@ -47,20 +47,20 @@ def answer_question(
     if conversation_history:
         recent_history = conversation_history[-6:]
 
-    history_text_for_retrieval = "\n".join(
-        f"{message['role']}: {message['content']}"
-        for message in recent_history
-    )
+        history_text_for_retrieval = "\n".join(
+            f"{message['role']}: {message['content']}"
+            for message in recent_history
+        )
 
-    retrieval_question = (
-        "Use the previous conversation to understand "
-        "the current question.\n\n"
-        "Previous conversation:\n"
-        + history_text_for_retrieval
-        + "\n\n"
-        "Current question:\n"
-        + question
-    )
+        retrieval_question = (
+            "Use the previous conversation to understand "
+            "the current question.\n\n"
+            "Previous conversation:\n"
+            + history_text_for_retrieval
+            + "\n\n"
+            "Current question:\n"
+            + question
+        )
 
     question_embedding = generate_embedding(retrieval_question)
     # ---------------------------------------------------------

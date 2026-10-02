@@ -4,6 +4,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from pathlib import Path
+from fastapi.responses import FileResponse
 
 from app.config.database import get_db
 from app.core.dependencies import get_current_user
@@ -306,15 +308,36 @@ def create_document_chunks(
 
     existing_chunks = db.query(DocumentChunk).filter(
         DocumentChunk.study_material_id == material.id
-    ).count()
+    ).all()
 
-    if existing_chunks > 0:
+    # ---------------------------------------------------------
+    # Backfill embeddings for already-created chunks
+    # ---------------------------------------------------------
+    if existing_chunks:
+        chunks_embedded = 0
+
+        for chunk in existing_chunks:
+            if chunk.embedding is None:
+                chunk.embedding = generate_embedding(chunk.text)
+                chunks_embedded += 1
+
+        if chunks_embedded > 0:
+            db.commit()
+
         return {
-            "message": "Document already chunked",
+            "message": (
+                "Document embeddings created successfully"
+                if chunks_embedded > 0
+                else "Document already chunked and embedded"
+            ),
             "material_id": material.id,
-            "chunks_created": existing_chunks
+            "chunks_created": len(existing_chunks),
+            "embeddings_created": chunks_embedded
         }
 
+    # ---------------------------------------------------------
+    # Extract PDF pages
+    # ---------------------------------------------------------
     pages = extract_pages_from_pdf(
         material.file_path
     )
@@ -327,6 +350,9 @@ def create_document_chunks(
             "text": clean_text(page["text"])
         })
 
+    # ---------------------------------------------------------
+    # Split pages into chunks
+    # ---------------------------------------------------------
     chunks = split_pages_into_chunks(
         cleaned_pages,
         chunk_size=1000,
@@ -339,12 +365,18 @@ def create_document_chunks(
             detail="No chunks could be created from this PDF"
         )
 
+    # ---------------------------------------------------------
+    # Create chunks + embeddings
+    # ---------------------------------------------------------
     for index, chunk in enumerate(chunks):
+        embedding = generate_embedding(chunk["text"])
+
         new_chunk = DocumentChunk(
             study_material_id=material.id,
             chunk_index=index,
             page_number=chunk["page_number"],
-            text=chunk["text"]
+            text=chunk["text"],
+            embedding=embedding
         )
 
         db.add(new_chunk)
@@ -352,9 +384,10 @@ def create_document_chunks(
     db.commit()
 
     return {
-        "message": "Document chunks created successfully",
+        "message": "Document chunks and embeddings created successfully",
         "material_id": material.id,
-        "chunks_created": len(chunks)
+        "chunks_created": len(chunks),
+        "embeddings_created": len(chunks)
     }
     
 @router.post("/{material_id}/search")
@@ -421,37 +454,6 @@ def search_study_material(
         "results": search_results
     }
     
-@router.post("/{material_id}/ask")
-def ask_study_material(
-    material_id: int,
-    rag_data: RAGRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    material = db.query(StudyMaterial).filter(
-        StudyMaterial.id == material_id,
-        StudyMaterial.user_id == current_user.id
-    ).first()
-
-    if not material:
-        raise HTTPException(
-            status_code=404,
-            detail="Study material not found"
-        )
-
-    result = answer_question(
-        db=db,
-        material_id=material_id,
-        question=rag_data.question,
-        limit=rag_data.limit
-    )
-
-    return {
-        "material_id": material_id,
-        "question": rag_data.question,
-        "answer": result["answer"],
-        "sources": result["sources"]
-    }
 @router.post(
     "/{material_id}/ask",
     response_model=RAGResponse
