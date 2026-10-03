@@ -117,6 +117,12 @@ export default function MaterialsPage() {
 
   const [msgs, setMsgs] = useState<Msg[]>([{ role: 'ai', text: 'Ask anything about your study material. Answers will be grounded in your uploaded documents.' }]);
 
+  const [conversationId, setConversationId] = useState<number | null>(null);
+
+  const [pdfExpanded, setPdfExpanded] = useState(false);
+  const [assistantExpanded, setAssistantExpanded] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+
   const [streaming, setStreaming] = useState<string | null>(null);
 
   const [cite, setCite] = useState<{ doc: string; page: number } | null>(null);
@@ -140,6 +146,8 @@ export default function MaterialsPage() {
   const [uploading, setUploading] = useState(false);
 
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+
+  const [isDragging, setIsDragging] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -319,6 +327,95 @@ export default function MaterialsPage() {
 
   }, [active?.id]);
 
+  useEffect(() => {
+  if (!active) return;
+
+  const currentActive = active;
+  let cancelled = false;
+
+  async function loadConversation() {
+    try {
+      setConversationId(null);
+      setMsgs([
+        {
+          role: 'ai',
+          text: 'Ask anything about your study material. Answers will be grounded in your uploaded documents.',
+        },
+      ]);
+
+      const conversations = await apiFetch('/students/me/conversations');
+
+      const existing = Array.isArray(conversations)
+        ? conversations.find(
+            (conversation: any) =>
+              String(conversation.study_material_id) === String(currentActive.id)
+          )
+        : null;
+
+      if (existing) {
+        const detail = await apiFetch(
+          `/students/me/conversations/${existing.id}`
+        );
+
+        if (cancelled) return;
+
+        setConversationId(Number(detail.id));
+
+        const messages = Array.isArray(detail.messages)
+          ? detail.messages
+          : [];
+
+        setMsgs(
+          messages.length > 0
+            ? messages.map((message: any) => ({
+                role: message.role === 'assistant' ? 'ai' : 'user',
+                text: message.content,
+              }))
+            : [
+                {
+                  role: 'ai',
+                  text: 'Ask anything about your study material. Answers will be grounded in your uploaded documents.',
+                },
+              ]
+        );
+
+        return;
+      }
+
+      const created = await apiFetch('/students/me/conversations', {
+        method: 'POST',
+        body: JSON.stringify({
+          study_material_id: Number(currentActive.id),
+          title: currentActive.title,
+        }),
+      });
+
+      if (cancelled) return;
+
+      setConversationId(Number(created.id));
+    } catch (error) {
+      if (cancelled) return;
+
+      setConversationId(null);
+      setMsgs([
+        {
+          role: 'ai',
+          text:
+            error instanceof Error
+              ? `Unable to load conversation: ${error.message}`
+              : 'Unable to load the conversation.',
+        },
+      ]);
+    }
+  }
+
+  void loadConversation();
+
+  return () => {
+    cancelled = true;
+  };
+}, [active?.id]);
+
   const refreshMaterialStats = async () => {
     const statsData = await apiFetch('/students/me/material-stats');
     setMaterialStats({
@@ -474,15 +571,15 @@ export default function MaterialsPage() {
 
   try {
     const result = await apiFetch(
-      `/students/me/materials/${currentActive.id}/ask`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          question: userQuestion,
-          limit: 5,
-        }),
-      }
-    );
+  `/students/me/conversations/${conversationId}/ask`,
+  {
+    method: 'POST',
+    body: JSON.stringify({
+      question: userQuestion,
+      limit: 5,
+    }),
+  }
+);
 
     const sources = Array.isArray(result?.sources)
       ? result.sources
@@ -789,23 +886,58 @@ export default function MaterialsPage() {
 
       </Reveal>
 
+            <div className="panel overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setLibraryOpen((value) => !value)}
+          className="flex w-full items-center justify-between p-4 text-left"
+        >
+          <span className="flex items-center gap-2.5">
+            <FileText className="h-4 w-4 text-cyan-300" />
+            <span>
+              <span className="block text-sm font-semibold text-white">
+                Library
+              </span>
+              <span className="block text-[10.5px] text-slate-500">
+                {libraryMaterials.length} study materials
+              </span>
+            </span>
+          </span>
+
+          <span className="text-xs font-semibold text-slate-400">
+            {libraryOpen ? 'Hide' : 'Show'}
+          </span>
+        </button>
+      </div>
+
       {/* =========================================================
 
           MAIN GRID
 
       ========================================================= */}
 
-      <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)_320px]">
-
+<div
+  className={cn(
+  'grid gap-4 items-start',
+  pdfExpanded
+    ? 'xl:grid-cols-[minmax(0,3fr)_320px]'
+    : assistantExpanded
+      ? 'xl:grid-cols-[320px_minmax(0,3fr)]'
+      : 'xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]'
+)}
+>
         {/* =======================================================
 
             LIBRARY
 
         ======================================================= */}
 
+        {libraryOpen && (
+  <div className="mt-3">
+
         <Reveal>
 
-          <div className="panel flex h-full flex-col p-4">
+          <div className="panel flex flex-col p-4">
 
             <div className="relative">
 
@@ -1043,27 +1175,56 @@ export default function MaterialsPage() {
 
             </div>
 
-            <div className="mt-3 rounded-xl border border-dashed border-white/15 p-3.5 text-center">
+            <button
+  type="button"
+  onClick={() => setUploadOpen(true)}
+  onDragOver={(e) => e.preventDefault()}
+  onDragEnter={(e) => {
+  e.preventDefault();
+  setIsDragging(true);
+}}
+onDragLeave={(e) => {
+  e.preventDefault();
+  setIsDragging(false);
+}}
+  onDrop={(e) => {
+    setIsDragging(false);
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
 
-              <Upload className="mx-auto mb-1.5 h-4 w-4 text-slate-500" />
+    if (!file) return;
 
-              <p className="text-[11px] text-slate-500">
+    if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) {
+      setUploadMessage('Only PDF files are supported.');
+      setUploadOpen(true);
+      return;
+    }
 
-                Drop a PDF here — indexed in{' '}
-
-                <span className="font-semibold text-slate-300">
-
-                  ~40 seconds
-
-                </span>
-
-              </p>
-
-            </div>
+    setUploadFile(file);
+    setUploadMessage(`${file.name} selected.`);
+    setUploadOpen(true);
+  }}
+  className={cn(
+  'mt-3 w-full rounded-xl border border-dashed p-3.5 text-center transition',
+  isDragging
+    ? 'border-violet-400 bg-violet-500/[0.08]'
+    : 'border-white/15 hover:border-violet-400/40 hover:bg-white/[0.025]'
+)}
+>
+  <Upload className="mx-auto mb-1.5 h-4 w-4 text-slate-500" />
+  <p className="text-[11px] text-slate-500">
+  Drop a PDF here or click to upload — indexed in{' '}
+  <span className="font-semibold text-slate-300">
+    ~40 seconds
+  </span>
+</p>
+</button>
 
           </div>
 
         </Reveal>
+        </div>
+)}
 
         {/* =======================================================
 
@@ -1073,7 +1234,7 @@ export default function MaterialsPage() {
 
         <Reveal delay={60}>
 
-          <div className="panel flex min-h-[58rem] h-full flex-col overflow-hidden">
+          <div className="panel flex min-h-[38rem] h-full flex-col overflow-hidden">
 
             {/***** Document header *****/}
 
@@ -1146,6 +1307,21 @@ export default function MaterialsPage() {
               </div>
 
               <div className="flex items-center gap-1.5">
+
+                <button
+  onClick={() => {
+    setPdfExpanded((value) => !value);
+    setAssistantExpanded(false);
+  }}
+  className="grid h-8 w-8 place-items-center rounded-lg border border-white/[0.09] text-slate-400 transition hover:border-white/25 hover:text-white"
+  title={pdfExpanded ? 'Minimize PDF' : 'Expand PDF'}
+>
+  {pdfExpanded ? (
+    <X className="h-3.5 w-3.5" />
+  ) : (
+    <ExternalLink className="h-3.5 w-3.5" />
+  )}
+</button>
 
                 <button
 
@@ -1412,6 +1588,7 @@ export default function MaterialsPage() {
                 <input
 
                   value={q}
+                  disabled={!!streaming}
 
                   onChange={(e) => setQ(e.target.value)}
 
@@ -1429,7 +1606,7 @@ export default function MaterialsPage() {
 
                   )}…" anything`}
 
-                  className="h-8 flex-1 bg-transparent text-[12.5px] text-white"
+                  className="h-8 flex-1 bg-transparent text-[12.5px] text-white placeholder:text-slate-500 disabled:cursor-not-allowed disabled:opacity-50"
 
                 />
 
@@ -1485,7 +1662,7 @@ export default function MaterialsPage() {
 
         <Reveal delay={120}>
 
-          <div className="panel flex min-h-[58rem] h-full flex-col overflow-hidden">
+          <div className="panel flex h-[38rem] flex-col overflow-hidden">
 
             <div className="flex items-center gap-3 border-b border-white/[0.07] p-4">
 
@@ -1500,10 +1677,11 @@ export default function MaterialsPage() {
               <div className="min-w-0 flex-1">
 
                 <h3 className="font-display text-[14px] font-bold text-white">
-
-                  Document assistant
-
-                </h3>
+  Document assistant
+</h3>
+<p className="truncate text-[10px] text-slate-500">
+  {active?.title ?? 'Study material'}
+</p>
 
                 <p className="text-[10.5px] text-emerald-300">
 
@@ -1536,6 +1714,21 @@ export default function MaterialsPage() {
                 }
 
               />
+
+              <button
+  onClick={() => {
+    setAssistantExpanded((value) => !value);
+    setPdfExpanded(false);
+  }}
+  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/[0.09] text-slate-400 transition hover:border-white/25 hover:text-white"
+  title={assistantExpanded ? 'Minimize Assistant' : 'Expand Assistant'}
+>
+  {assistantExpanded ? (
+    <X className="h-3.5 w-3.5" />
+  ) : (
+    <ExternalLink className="h-3.5 w-3.5" />
+  )}
+</button>
 
             </div>
 
@@ -1609,7 +1802,36 @@ export default function MaterialsPage() {
 
                     >
 
-                      <p>{m.text}</p>
+                      <div className="whitespace-pre-wrap text-[14px] leading-7">
+  {m.text.split('\n').map((line, index) => {
+    const heading = line.replace(/^#{1,6}\s*/, '');
+    const isHeading = heading !== line;
+    const bullet = heading.replace(/^\*\s+/, '').replace(/^-\s+/, '');
+    const isBullet = bullet !== heading;
+    const parts = bullet.split(/(\*\*.*?\*\*)/g);
+
+    return (
+      <div
+        key={index}
+        className={cn(
+          isHeading && 'mb-2 mt-3 text-[15px] font-bold text-white',
+          isBullet && 'ml-2'
+        )}
+      >
+        {isBullet && <span className="mr-2 text-cyan-300">•</span>}
+        {parts.map((part, partIndex) =>
+          part.startsWith('**') && part.endsWith('**') ? (
+            <strong key={partIndex}>
+              {part.slice(2, -2)}
+            </strong>
+          ) : (
+            <span key={partIndex}>{part}</span>
+          )
+        )}
+      </div>
+    );
+  })}
+</div>
 
                       {m.points && (
 
@@ -1664,12 +1886,10 @@ export default function MaterialsPage() {
                               key={k}
 
                               onClick={() => {
-
-                                setCite(c);
-
-                                setPage(c.page);
-
-                              }}
+  setCite(c);
+  setPage(c.page);
+  setZoom(100);
+}}
 
                               className={cn(
 
